@@ -1,12 +1,13 @@
 {
   "name": "grace-fire-church-website",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Website for Grace Fire Deliverance Healing Global World Ministry",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "pdfkit": "^0.16.0"
   }
 }
