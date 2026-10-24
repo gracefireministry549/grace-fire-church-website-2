@@ -42,4 +42,6 @@ The 9th Church Anniversary was held on August 30, 2026. The site marks it as a p
 
 - Request bodies are size-limited and form submissions have basic per-process rate limiting.
 - The rate limiter is in-memory and is not shared across multiple service instances.
-- Messages are emailed and are not written to application logs or stored in a database.
+- Prayer requests and contact messages are stored in private Supabase tables with RLS enabled; public/anonymous roles have no table permissions.
+- Message contents and prayer details are not written to application logs.
+- Email notifications are optional and require the Resend environment variables above.
