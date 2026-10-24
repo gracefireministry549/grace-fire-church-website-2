@@ -128,37 +128,127 @@ function allowRequest(req, res) {
   return true;
 }
 function cleanText(value, maxLength) { return typeof value === "string" ? value.trim().slice(0, maxLength) : ""; }
+function validEmail(value) { return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
+
+const SUPABASE_URL = (process.env.SUPABASE_URL || "https://xcvywoecvgzceyvqhjsr.supabase.co").replace(/\/+$/, "");
+async function saveToSupabase(table, row) {
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!key) {
+    const error = new Error("Database storage is not configured");
+    error.statusCode = 503;
+    throw error;
+  }
+  const response = await fetch(SUPABASE_URL + "/rest/v1/" + table, {
+    method: "POST",
+    headers: {
+      apikey: key,
+      Authorization: "Bearer " + key,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal"
+    },
+    body: JSON.stringify(row)
+  });
+  if (!response.ok) {
+    // Do not log request bodies or personal prayer/contact details.
+    const error = new Error("Database storage failed");
+    error.statusCode = response.status === 401 || response.status === 403 ? 503 : 502;
+    throw error;
+  }
+}
+
 async function sendMinistryEmail(subject, textBody, replyTo) {
   const apiKey = process.env.RESEND_API_KEY, recipient = process.env.MINISTRY_EMAIL, sender = process.env.RESEND_FROM_EMAIL;
-  if (!apiKey || !recipient || !sender) { const error = new Error("Email delivery is not configured"); error.statusCode = 503; throw error; }
+  if (!apiKey || !recipient || !sender) return false;
   const payload = { from: sender, to: [recipient], subject, text: textBody };
   if (replyTo) payload.reply_to = replyTo;
-  const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (!response.ok) { const error = new Error("Email provider rejected the message"); error.statusCode = 502; throw error; }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return response.ok;
 }
+
 app.post("/api/prayer-request", async (req, res) => {
   if (!allowRequest(req, res)) return;
-  const name = cleanText(req.body.name, 100), phone = cleanText(req.body.phone, 40), prayer = cleanText(req.body.prayer, 4000);
-  if (!name || !prayer) return res.status(400).json({ success: false, message: "Please provide your name and prayer request." });
+  const name = cleanText(req.body?.name, 120);
+  const phone = cleanText(req.body?.phone, 40);
+  const prayer = cleanText(req.body?.prayer, 3000);
+  if (name.length < 2 || prayer.length < 3) {
+    return res.status(400).json({ success: false, message: "Please provide your name and a prayer request." });
+  }
   try {
-    await sendMinistryEmail("Website prayer request", `Prayer request from: ${name}\nPhone: ${phone || "Not provided"}\n\nRequest:\n${prayer}`);
-    res.json({ success: true, message: "Your prayer request has been sent to the ministry. God bless you." });
+    await saveToSupabase("prayer_requests", {
+      full_name: name,
+      phone: phone || null,
+      prayer_request: prayer,
+      consent: true
+    });
+    let emailSent = false;
+    try {
+      emailSent = await sendMinistryEmail("Website prayer request", "Prayer request from: " + name + "\nPhone: " + (phone || "Not provided") + "\n\nRequest:\n" + prayer);
+    } catch (_) {
+      emailSent = false;
+    }
+    res.json({
+      success: true,
+      message: emailSent
+        ? "Your prayer request has been received by the ministry. God bless you."
+        : "Your prayer request has been saved securely. Email notification is not available right now. God bless you."
+    });
   } catch (error) {
-    console.error("Prayer request delivery failed:", error.statusCode || "unexpected error");
-    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode === 503 ? "Prayer request delivery is not set up yet. Please contact the ministry by WhatsApp or phone." : "We could not send your request right now. Please contact the ministry by WhatsApp or phone." });
+    console.error("Prayer request storage failed:", error.statusCode || "unexpected error");
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode === 503
+        ? "Prayer request storage is not set up yet. Please contact the ministry by WhatsApp or phone."
+        : "We could not save your request right now. Please contact the ministry by WhatsApp or phone."
+    });
   }
 });
+
 app.post("/api/contact", async (req, res) => {
   if (!allowRequest(req, res)) return;
-  const name = cleanText(req.body.name, 100), email = cleanText(req.body.email, 254), message = cleanText(req.body.message, 4000);
-  if (!name || !message) return res.status(400).json({ success: false, message: "Please complete the required fields." });
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ success: false, message: "Please enter a valid email address." });
+  const name = cleanText(req.body?.name, 120);
+  const email = cleanText(req.body?.email, 254);
+  const message = cleanText(req.body?.message, 3000);
+  if (name.length < 2 || message.length < 3) {
+    return res.status(400).json({ success: false, message: "Please complete the required fields." });
+  }
+  if (!validEmail(email)) {
+    return res.status(400).json({ success: false, message: "Please enter a valid email address." });
+  }
   try {
-    await sendMinistryEmail("Website contact message", `Message from: ${name}\nEmail: ${email || "Not provided"}\n\nMessage:\n${message}`, email || undefined);
-    res.json({ success: true, message: "Your message has been sent to the ministry. Thank you." });
+    await saveToSupabase("contact_messages", {
+      full_name: name,
+      email: email || null,
+      subject: "Website contact message",
+      message
+    });
+    let emailSent = false;
+    try {
+      emailSent = await sendMinistryEmail(
+        "Website contact message",
+        "Message from: " + name + "\nEmail: " + (email || "Not provided") + "\n\nMessage:\n" + message,
+        email || undefined
+      );
+    } catch (_) {
+      emailSent = false;
+    }
+    res.json({
+      success: true,
+      message: emailSent
+        ? "Your message has been received by the ministry. Thank you."
+        : "Your message has been saved securely. Email notification is not available right now. Thank you."
+    });
   } catch (error) {
-    console.error("Contact message delivery failed:", error.statusCode || "unexpected error");
-    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode === 503 ? "Website messaging is not set up yet. Please contact the ministry by WhatsApp or phone." : "We could not send your message right now. Please use WhatsApp or phone instead." });
+    console.error("Contact message storage failed:", error.statusCode || "unexpected error");
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode === 503
+        ? "Website messaging is not set up yet. Please contact the ministry by WhatsApp or phone."
+        : "We could not save your message right now. Please use WhatsApp or phone instead."
+    });
   }
 });
 
