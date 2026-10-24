@@ -15,3 +15,10 @@ footer{background:linear-gradient(135deg,#10184a,#2636c7,#6b21d4,#ec1976);color:
 @media(max-width:950px){.sermon-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:850px){.header{height:70px}.brand small{max-width:190px}.menu{display:block}nav{display:none;position:absolute;left:0;right:0;top:70px;background:#fff;padding:18px 6%;flex-direction:column;box-shadow:0 10px 20px rgba(0,0,0,.08)}nav.show{display:flex}.hero{min-height:calc(100vh - 70px)}.event-card,.two-col,.form-wrap{grid-template-columns:1fr;gap:30px}.event-art{min-height:320px}.event-copy{padding:30px}.cards,.banks{grid-template-columns:1fr}.gallery{grid-template-columns:1fr 1fr}.section{padding:70px 5%}.two-col{text-align:center}.two-col>div:first-child{text-align:left}.pastor img,.pastor-fallback{width:260px;height:320px;margin:auto}}
 @media(max-width:600px){.sermon-grid{grid-template-columns:1fr}.brand b{font-size:14px}.brand small{font-size:8px}.hero h1{font-size:43px}.section{padding:60px 5%}.gallery{grid-template-columns:1fr}.gallery img{height:260px}#countdown{grid-template-columns:repeat(2,1fr)}.event-copy h3{font-size:28px}.event-art{min-height:260px}.two-col{grid-template-columns:1fr}.map iframe{height:300px}}
+
+.contact-form-wrap{max-width:900px;margin:42px auto 0;text-align:left}
+.contact-form-wrap h3{font-size:26px;color:var(--purple);margin-bottom:18px}
+.contact-form-wrap form{max-width:760px;margin:auto}
+.contact-form-wrap label{display:block;font-weight:700;margin:0 0 7px;color:var(--navy)}
+button:disabled{opacity:.65;cursor:wait}
+[hidden]{display:none!important}

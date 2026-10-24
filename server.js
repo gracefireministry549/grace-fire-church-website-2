@@ -5,8 +5,9 @@ const PDFDocument = require("pdfkit");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.disable("x-powered-by");
+app.use(express.json({ limit: "20kb" }));
+app.use(express.urlencoded({ extended: true, limit: "20kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const sermons = [
@@ -115,18 +116,50 @@ app.get("/api/sermons", (req, res) => {
   res.json(sermons.map(({ id, slug, title, scripture }) => ({ id, slug, title, scripture, pdf: `/sermons/${slug}.pdf` })));
 });
 
-app.post("/api/prayer-request", (req, res) => {
-  const { name, phone, prayer } = req.body;
+// Basic per-process rate limiting; use a shared store if running multiple instances.
+const requestBuckets = new Map();
+function allowRequest(req, res) {
+  const key = `${req.ip}:${req.path}`, now = Date.now();
+  const bucket = requestBuckets.get(key) || { count: 0, resetAt: now + 900000 };
+  if (now > bucket.resetAt) { bucket.count = 0; bucket.resetAt = now + 900000; }
+  bucket.count++; requestBuckets.set(key, bucket);
+  if (requestBuckets.size > 2000) for (const [k, v] of requestBuckets) if (now > v.resetAt) requestBuckets.delete(k);
+  if (bucket.count > 5) { res.status(429).json({ success: false, message: "Too many submissions. Please wait a little and try again." }); return false; }
+  return true;
+}
+function cleanText(value, maxLength) { return typeof value === "string" ? value.trim().slice(0, maxLength) : ""; }
+async function sendMinistryEmail(subject, textBody, replyTo) {
+  const apiKey = process.env.RESEND_API_KEY, recipient = process.env.MINISTRY_EMAIL, sender = process.env.RESEND_FROM_EMAIL;
+  if (!apiKey || !recipient || !sender) { const error = new Error("Email delivery is not configured"); error.statusCode = 503; throw error; }
+  const payload = { from: sender, to: [recipient], subject, text: textBody };
+  if (replyTo) payload.reply_to = replyTo;
+  const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!response.ok) { const error = new Error("Email provider rejected the message"); error.statusCode = 502; throw error; }
+}
+app.post("/api/prayer-request", async (req, res) => {
+  if (!allowRequest(req, res)) return;
+  const name = cleanText(req.body.name, 100), phone = cleanText(req.body.phone, 40), prayer = cleanText(req.body.prayer, 4000);
   if (!name || !prayer) return res.status(400).json({ success: false, message: "Please provide your name and prayer request." });
-  console.log("NEW PRAYER REQUEST", { name, phone, prayer, date: new Date().toISOString() });
-  res.json({ success: true, message: "Your prayer request has been received. God bless you." });
+  try {
+    await sendMinistryEmail("Website prayer request", `Prayer request from: ${name}\nPhone: ${phone || "Not provided"}\n\nRequest:\n${prayer}`);
+    res.json({ success: true, message: "Your prayer request has been sent to the ministry. God bless you." });
+  } catch (error) {
+    console.error("Prayer request delivery failed:", error.statusCode || "unexpected error");
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode === 503 ? "Prayer request delivery is not set up yet. Please contact the ministry by WhatsApp or phone." : "We could not send your request right now. Please contact the ministry by WhatsApp or phone." });
+  }
 });
-
-app.post("/api/contact", (req, res) => {
-  const { name, email, message } = req.body;
+app.post("/api/contact", async (req, res) => {
+  if (!allowRequest(req, res)) return;
+  const name = cleanText(req.body.name, 100), email = cleanText(req.body.email, 254), message = cleanText(req.body.message, 4000);
   if (!name || !message) return res.status(400).json({ success: false, message: "Please complete the required fields." });
-  console.log("NEW CONTACT MESSAGE", { name, email, message, date: new Date().toISOString() });
-  res.json({ success: true, message: "Your message has been received." });
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ success: false, message: "Please enter a valid email address." });
+  try {
+    await sendMinistryEmail("Website contact message", `Message from: ${name}\nEmail: ${email || "Not provided"}\n\nMessage:\n${message}`, email || undefined);
+    res.json({ success: true, message: "Your message has been sent to the ministry. Thank you." });
+  } catch (error) {
+    console.error("Contact message delivery failed:", error.statusCode || "unexpected error");
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode === 503 ? "Website messaging is not set up yet. Please contact the ministry by WhatsApp or phone." : "We could not send your message right now. Please use WhatsApp or phone instead." });
+  }
 });
 
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
