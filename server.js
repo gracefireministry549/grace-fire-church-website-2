@@ -132,7 +132,7 @@ function validEmail(value) { return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://xcvywoecvgzceyvqhjsr.supabase.co").replace(/\/+$/, "");
 async function saveToSupabase(table, row) {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!key) {
     const error = new Error("Database storage is not configured");
     error.statusCode = 503;
